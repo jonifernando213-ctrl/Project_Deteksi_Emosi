@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EmoScan — Training Model</title>
+<link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-bg-grid"></div>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">EMOSCAN</span>
+      </div>
+      <div class="header-sub">Sistem Deteksi Emosi Wajah — Machine Learning Pipeline</div>
+    </div>
+  </div>
+
+  <div class="app-nav">
+    <a href="dataset.html" id="navDataset"><span class="step-num">1</span> Dataset Collection</a>
+    <a href="training.html" class="active"><span class="step-num">2</span> Training</a>
+    <a href="evaluation.html" id="navEval"><span class="step-num">3</span> Evaluation</a>
+    <a href="index.html"><span class="step-num">4</span> Deteksi Emosi (Inference)</a>
+  </div>
+
+  <div class="page-wrap">
+    <div class="page-title">Training Model</div>
+    <div class="page-desc">
+      Tahap kedua pipeline Machine Learning. Dataset yang sudah dikumpulkan dipisah menjadi fitur (X) dan label (y), lalu digunakan untuk membangun model KNN (K-Nearest Neighbor). KNN adalah <em>lazy learner</em> — "training" berarti menyimpan seluruh referensi data agar bisa dipakai menghitung jarak saat prediksi nanti.
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Dataset Tersedia</div>
+        <div class="grid-3" id="trainDataStats"></div>
+        <div id="trainWarning" style="margin-top:12px;"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Parameter Training</div>
+        <div style="margin-bottom:14px;">
+          <label style="font-family:'Space Mono',monospace;font-size:0.78rem;color:var(--text-dim);">
+            Nilai K (jumlah tetangga): <span id="kVal" style="color:var(--accent);font-weight:700">3</span>
+          </label>
+          <input type="range" id="kSlider" min="1" max="15" value="3" style="width:100%;margin-top:6px;">
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="font-family:'Space Mono',monospace;font-size:0.78rem;color:var(--text-dim);">Algoritma:</label>
+          <select id="algoSelect" style="width:100%;margin-top:6px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'Space Mono',monospace;font-size:0.78rem;">
+            <option value="knn" selected>K-Nearest Neighbor (KNN)</option>
+          </select>
+        </div>
+        <button id="btnTrain" class="btn btn-detect btn-block" disabled>Train Model</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Training Log</div>
+      <div class="train-log" id="trainLog">
+        Menunggu proses training dimulai ...
+      </div>
+    </div>
+
+    <div class="card" id="modelResultCard" style="display:none;">
+      <div class="card-title">Model Tersimpan</div>
+      <div class="grid-4" id="modelInfo"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <button id="btnSaveModel" class="btn btn-start" style="flex:1;justify-content:center;">Save Model</button>
+        <button id="btnDeleteModel" class="btn" style="flex:1;background:rgba(194,113,122,0.15);color:#c2717a;border:1px solid #c2717a;border-radius:6px;padding:8px;cursor:pointer;">Hapus Model</button>
+      </div>
+      <div id="saveStatus" style="margin-top:10px;font-size:0.75rem;text-align:center;"></div>
+    </div>
+
+    <div style="text-align:center;margin-top:20px;display:flex;justify-content:center;gap:12px;">
+      <a href="dataset.html" class="btn" style="text-decoration:none;display:inline-flex;padding:10px 24px;background:var(--bg3);color:var(--text-dim);border:1px solid var(--border);border-radius:6px;">Kembali ke Dataset</a>
+      <a href="evaluation.html" class="btn btn-start" style="text-decoration:none;display:inline-flex;padding:10px 24px;" id="btnGoEval">Lanjut ke Evaluation</a>
+    </div>
+  </div>
+
+  <script src="static/js/shared.js"></script>
+  <script>
+    let dataset = loadDataset();
+    let trainedModel = null;
+
+    function renderDataStats() {
+      const counts = {}; ML_PIPELINE_EMOTIONS.forEach(e => counts[e]=0);
+      dataset.forEach(d => counts[d.label]++);
+      const classesUsed = ML_PIPELINE_EMOTIONS.filter(e => counts[e]>0).length;
+
+      document.getElementById('trainDataStats').innerHTML = `
+        <div class="stat-box"><div class="val" style="color:#7fae91">${dataset.length}</div><div class="lbl">Total Sampel</div></div>
+        <div class="stat-box"><div class="val" style="color:#7fa3bd">${classesUsed}/7</div><div class="lbl">Kelas Terisi</div></div>
+        <div class="stat-box"><div class="val" style="color:#a396b3">67</div><div class="lbl">Dimensi Fitur</div></div>
+      `;
+
+      const warnEl = document.getElementById('trainWarning');
+      const btnTrain = document.getElementById('btnTrain');
+
+      if (dataset.length < 10 || classesUsed < 2) {
+        warnEl.innerHTML = `<div style="background:rgba(255,170,85,0.1);border:1px solid #c99a63;border-radius:6px;padding:10px;font-size:0.75rem;color:#c99a63;">
+          Dataset belum cukup untuk training. Minimal 10 sampel dari 2 kelas berbeda. Kembali ke halaman <a href="dataset.html" style="color:#c99a63;text-decoration:underline;">Dataset Collection</a>.
+        </div>`;
+        btnTrain.disabled = true;
+      } else {
+        warnEl.innerHTML = `<div style="background:rgba(127,174,145,0.1);border:1px solid #7fae91;border-radius:6px;padding:10px;font-size:0.75rem;color:#7fae91;">
+          Dataset siap untuk training.
+        </div>`;
+        btnTrain.disabled = false;
+      }
+    }
+
+    const kSlider = document.getElementById('kSlider');
+    const kVal = document.getElementById('kVal');
+    kSlider.addEventListener('input', () => { kVal.textContent = kSlider.value; });
+
+    function appendLog(text, type='') {
+      const log = document.getElementById('trainLog');
+      const cls = type === 'info' ? 'line-info' : type === 'warn' ? 'line-warn' : '';
+      log.innerHTML += `<div class="${cls}">${text}</div>`;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    document.getElementById('btnTrain').addEventListener('click', async () => {
+      const log = document.getElementById('trainLog');
+      log.innerHTML = '';
+      const btnTrain = document.getElementById('btnTrain');
+      btnTrain.disabled = true;
+      btnTrain.textContent = 'Training...';
+
+      const k = parseInt(kSlider.value);
+
+      appendLog('[1/4] Memuat dataset dari localStorage...', 'info');
+      await sleep(300);
+      appendLog(`      - ${dataset.length} sampel berhasil dimuat`);
+
+      appendLog('[2/4] Memisahkan fitur (X) dan label (y)...', 'info');
+      await sleep(300);
+      const X = dataset.map(d => d.features);
+      const y = dataset.map(d => d.label);
+      appendLog(`      - X.shape = [${X.length}, ${X[0].length}]`);
+      appendLog(`      - y.shape = [${y.length}]`);
+
+      appendLog('[3/4] Membangun model KNN...', 'info');
+      await sleep(500);
+      appendLog(`      - Algoritma: K-Nearest Neighbor`);
+      appendLog(`      - K = ${k}`);
+      appendLog(`      - Metrik jarak: Euclidean Distance`);
+      appendLog(`      - Menyimpan ${X.length} titik data sebagai referensi (lazy learning)`);
+
+      trainedModel = trainKNN(dataset, k);
+      await sleep(400);
+
+      appendLog('[4/4] Training selesai!', 'info');
+      appendLog(`      Model siap digunakan untuk prediksi`);
+
+      document.getElementById('modelResultCard').style.display = 'block';
+      const counts = {}; ML_PIPELINE_EMOTIONS.forEach(e => counts[e]=0);
+      dataset.forEach(d => counts[d.label]++);
+      const classesUsed = ML_PIPELINE_EMOTIONS.filter(e => counts[e]>0).length;
+
+      document.getElementById('modelInfo').innerHTML = `
+        <div class="stat-box"><div class="val" style="color:#7fae91">${trainedModel.nSamples}</div><div class="lbl">Sampel Dilatih</div></div>
+        <div class="stat-box"><div class="val" style="color:#7fa3bd">K=${trainedModel.k}</div><div class="lbl">Nilai K</div></div>
+        <div class="stat-box"><div class="val" style="color:#c99b52">${classesUsed}</div><div class="lbl">Kelas</div></div>
+        <div class="stat-box"><div class="val" style="color:#a396b3;font-size:0.85rem">${new Date(trainedModel.trainedAt).toLocaleTimeString('id-ID')}</div><div class="lbl">Waktu Training</div></div>
+      `;
+
+      btnTrain.disabled = false;
+      btnTrain.textContent = 'Train Model';
+    });
+
+    document.getElementById('btnSaveModel').addEventListener('click', () => {
+      if (!trainedModel) return;
+      const ok = saveModel(trainedModel);
+      const statusEl = document.getElementById('saveStatus');
+      if (ok) {
+        statusEl.textContent = 'Model berhasil disimpan ke localStorage. Siap dievaluasi atau dipakai untuk deteksi.';
+        statusEl.style.color = '#7fae91';
+      } else {
+        statusEl.textContent = 'Gagal menyimpan model.';
+        statusEl.style.color = '#c2717a';
+      }
+    });
+
+    document.getElementById('btnDeleteModel').addEventListener('click', () => {
+      if (!confirm('Hapus model yang tersimpan?')) return;
+      clearModel();
+      document.getElementById('saveStatus').textContent = 'Model dihapus dari localStorage.';
+      document.getElementById('saveStatus').style.color = 'var(--text-dim)';
+    });
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    // Cek apakah model sudah ada sebelumnya
+    const existingModel = loadModel();
+    if (existingModel) {
+      document.getElementById('navEval').classList.add('done');
+    }
+
+    renderDataStats();
+  </script>
+</body>
+</html>

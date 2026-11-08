@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EmoScan — Deteksi Emosi + Preprocessing Citra</title>
+  <link rel="stylesheet" href="static/css/style.css" />
+  <style>
+    .global-upload-bar {
+      background: #2a2b30;
+      border-bottom: 1px solid #3a3b42;
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .gub-label {
+      font-family: 'Space Mono', monospace;
+      color: #6f93b8;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .global-upload-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(111,147,184,0.12);
+      border: 1.5px dashed #6f93b8;
+      border-radius: 8px;
+      padding: 8px 18px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.78rem;
+      color: #6f93b8;
+    }
+    .global-upload-label:hover {
+      background: rgba(111,147,184,0.25);
+      border-color: #8bb0d6;
+      color: #e4e5e8;
+    }
+    .gub-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.75rem;
+      color: #8a8d95;
+      flex: 1;
+    }
+    .gub-status.loaded { color: #7fae91; }
+    .gub-thumb {
+      width: 52px;
+      height: 40px;
+      object-fit: cover;
+      border-radius: 5px;
+      border: 1.5px solid #6f93b8;
+      display: none;
+    }
+    .gub-thumb.visible { display: block; }
+    .gub-badge {
+      background: #7fae91;
+      color: #1b1c20;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-family: 'Space Mono', monospace;
+      display: none;
+    }
+    .gub-badge.visible { display: inline-block; }
+    .gub-hint {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.72rem;
+      color: #7fae91;
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+    .gub-hint.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">EmoScan</span>
+      </div>
+    </div>
+    <div class="header-bg-grid"></div>
+  </header>
+
+  <div class="app-nav">
+    <a href="dataset.html"><span class="step-num">1</span> Dataset Collection</a>
+    <a href="training.html"><span class="step-num">2</span> Training</a>
+    <a href="evaluation.html"><span class="step-num">3</span> Evaluation</a>
+    <a href="index.html" class="active"><span class="step-num">4</span> Deteksi Emosi (Inference)</a>
+  </div>
+
+  <!-- GLOBAL UPLOAD BAR -->
+  <div class="global-upload-bar">
+    <span class="gub-label">Upload Gambar</span>
+    <label class="global-upload-label">
+      <span>Pilih Gambar (Berlaku Semua Tab)</span>
+      <input type="file" id="globalImgInput" accept="image/*" hidden />
+    </label>
+    <div class="gub-status" id="gubStatus">
+      <img class="gub-thumb" id="gubThumb" src="" alt="" />
+      <span id="gubFilename">Belum ada gambar dipilih</span>
+      <span class="gub-badge" id="gubBadge">Aktif di semua tab</span>
+    </div>
+    <span class="gub-hint" id="gubHint">Pilih tab untuk melihat hasil preprocessing</span>
+  </div>
+
+  <div class="status-bar" id="statusBar">
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText">Memuat model AI... mohon tunggu</span>
+  </div>
+
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="tab-emotion">Deteksi Emosi</button>
+    <button class="tab-btn" data-tab="tab-data">Data</button>
+    <button class="tab-btn" data-tab="tab-technic">Technic</button>
+    <button class="tab-btn" data-tab="tab-convolution">Convolution</button>
+    <button class="tab-btn" data-tab="tab-morphology">Morphology</button>
+    <button class="tab-btn" data-tab="tab-feature">Feature Detection</button>
+    <button class="tab-btn" data-tab="tab-ml">Machine Learning</button>
+  </nav>
+
+  <!-- TAB 1: DETEKSI EMOSI -->
+  <div class="tab-content active" id="tab-emotion">
+    <main class="main">
+      <section class="panel camera-panel">
+        <div class="panel-header">
+          <h2 class="panel-title"><span class="panel-num">01</span> Kamera Live</h2>
+          <div class="cam-controls">
+            <button class="btn btn-start" id="btnStart" disabled><span class="btn-icon">▶</span> Mulai Kamera</button>
+            <button class="btn btn-stop hidden" id="btnStop"><span class="btn-icon">■</span> Stop</button>
+          </div>
+        </div>
+        <div id="noModelBanner" class="empty-state hidden" style="margin:12px 0;padding:14px;border:1px solid #c2717a;border-radius:8px;background:rgba(194,113,122,0.08);">
+          <div style="font-weight:700;color:#c2717a;margin-bottom:6px;">Model KNN belum dilatih</div>
+          <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.6;">
+            Deteksi emosi di halaman ini memakai model KNN hasil training kamu sendiri, jadi tidak bisa langsung dipakai.
+            Lengkapi dulu pipeline-nya:
+            <a href="dataset.html" style="color:var(--accent)">1. Dataset Collection</a> (upload/ambil gambar wajah per emosi) →
+            <a href="training.html" style="color:var(--accent)">2. Training</a> (latih model KNN) →
+            <a href="evaluation.html" style="color:var(--accent)">3. Evaluation</a> (cek akurasi) →
+            baru kembali ke sini untuk deteksi.
+          </div>
+        </div>
+        <div class="video-wrapper" id="videoWrapper">
+          <video id="video" autoplay muted playsinline></video>
+          <canvas id="overlay"></canvas>
+          <div class="video-idle" id="videoIdle">
+            <div class="idle-icon">◎</div>
+            <p>Klik <strong>Mulai Kamera</strong> untuk memulai deteksi</p>
+          </div>
+          <div class="video-loading hidden" id="videoLoading">
+            <div class="spinner"></div>
+            <p>Mengakses kamera...</p>
+          </div>
+        </div>
+        <div class="live-badge hidden" id="liveBadge">
+          <span class="live-dot"></span> LIVE
+        </div>
+      </section>
+      <section class="panel result-panel">
+        <div class="panel-header">
+          <h2 class="panel-title"><span class="panel-num">02</span> Hasil Deteksi (Model KNN Custom)</h2>
+        </div>
+        <div class="emotion-display" id="emotionDisplay">
+          <div class="emotion-idle-state" id="emotionIdleState">
+            <div class="idle-emotion-icon">?</div>
+            <p>Belum ada wajah terdeteksi</p>
+          </div>
+          <div class="emotion-active-state hidden" id="emotionActiveState">
+            <div class="emotion-emoji" id="emotionEmoji">😐</div>
+            <div class="emotion-label" id="emotionLabel">Neutral</div>
+            <div class="emotion-label-id" id="emotionLabelId">Netral</div>
+            <div class="confidence-bar-wrap">
+              <div class="confidence-bar" id="confidenceBar" style="width:0%"></div>
+            </div>
+            <div class="confidence-text" id="confidenceText">0%</div>
+          </div>
+        </div>
+        <div class="scores-section">
+          <h3 class="scores-title">Skor Semua Ekspresi</h3>
+          <div class="scores-grid" id="scoresGrid"></div>
+        </div>
+        <div class="upload-section">
+          <h3 class="scores-title">Deteksi Emosi dari Gambar</h3>
+          <div class="upload-preview-wrap hidden" id="uploadPreviewWrap">
+            <img id="uploadPreview" src="" alt="preview" />
+            <button class="btn btn-detect" id="btnDetect">Deteksi Gambar</button>
+          </div>
+          <p id="emotionUploadHint" style="font-family:'Space Mono',monospace;font-size:0.73rem;color:#8a8d95;padding:8px 0;">
+            ↑ Upload gambar via banner di atas untuk deteksi otomatis
+          </p>
+          <canvas id="uploadCanvas" style="display:none"></canvas>
+        </div>
+      </section>
+    </main>
+  </div>
+
+
+  <div class="tab-content" id="tab-data">
+    <div class="prep-layout">
+      <div class="prep-sidebar">
+        <h2 class="prep-title">Data &amp; Representasi Citra</h2>
+        <p class="prep-desc">Citra digital adalah matriks piksel. Setiap piksel memiliki nilai intensitas 0–255. Lihat representasi data mentah: nilai piksel, histogram distribusi warna, dan info kuantisasi.</p>
+        <div class="info-box">
+          <div class="info-row"><span>Lebar</span><span id="dataWidth">—</span></div>
+          <div class="info-row"><span>Tinggi</span><span id="dataHeight">—</span></div>
+          <div class="info-row"><span>Total Piksel</span><span id="dataTotal">—</span></div>
+          <div class="info-row"><span>Bit Depth</span><span>8-bit per channel</span></div>
+          <div class="info-row"><span>Channels</span><span>RGB (3)</span></div>
+        </div>
+        <h3 class="scores-title" style="margin-top:12px">Sampel Piksel (10×10)</h3>
+        <div id="pixelGrid" class="pixel-grid"></div>
+      </div>
+      <div class="prep-canvas-area">
+        <div class="canvas-box"><div class="canvas-label">Gambar Asli</div><canvas id="dataOrigCanvas"></canvas></div>
+        <div class="canvas-box"><div class="canvas-label">Histogram R/G/B</div><canvas id="dataHistCanvas" width="400" height="200"></canvas></div>
+        <div class="canvas-box"><div class="canvas-label">Grayscale</div><canvas id="dataGrayCanvas"></canvas></div>
+        <div class="canvas-box"><div class="canvas-label">Histogram Grayscale</div><canvas id="dataGrayHistCanvas" width="400" height="200"></canvas></div>
+        <div class="canvas-box full-width">
+          <div class="canvas-label">K-Means Clustering (Unsupervised)</div>
+          <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+            <label style="font-family:'Space Mono',monospace;font-size:0.75rem;color:#a09bc8;">Jumlah Cluster (K):</label>
+            <select id="kmeansK" class="ctrl-select" style="width:auto;padding:4px 10px;">
+              <option value="2">K = 2</option>
+              <option value="3">K = 3</option>
+              <option value="4" selected>K = 4</option>
+              <option value="5">K = 5</option>
+              <option value="6">K = 6</option>
+              <option value="7">K = 7</option>
+            </select>
+            <button class="btn btn-start" id="btnRunKmeans" style="padding:4px 14px;font-size:0.75rem;">Jalankan K-Means</button>
+          </div>
+          <canvas id="dataKmeansCanvas"></canvas>
+          <div class="canvas-desc">K-Means mengelompokkan piksel berdasarkan kemiripan warna RGB tanpa label (unsupervised). Setiap piksel diganti dengan warna rata-rata clusternya.</div>
+          <div class="info-box" id="kmeansInfo" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 7: MACHINE LEARNING -->
+  <div class="tab-content" id="tab-ml">
+    <div class="prep-layout">
+      <div class="prep-sidebar">
+        <h2 class="prep-title">Machine Learning</h2>
+        <p class="prep-desc">Pipeline ML berbasis supervised learning. Ekstraksi fitur dari gambar, simpan sebagai data training berlabel, lalu prediksi emosi menggunakan KNN.</p>
+
+        <div style="border:1px solid #3a3b42;border-radius:8px;padding:12px;margin-bottom:12px;">
+          <div style="font-family:'Space Mono',monospace;font-size:0.72rem;color:#6f93b8;margin-bottom:8px;font-weight:700;">STEP 1 — NORMALISASI & POOLING</div>
+          <p style="font-size:0.72rem;color:#9498a1;margin:0">Otomatis dijalankan saat upload gambar. Lihat panel kanan.</p>
+          <div class="control-group" style="margin-top:10px;">
+            <label class="ctrl-label">Pool Size:</label>
+            <select id="mlPoolSize" class="ctrl-select">
+              <option value="2" selected>2×2</option>
+              <option value="4">4×4</option>
+              <option value="8">8×8</option>
+            </select>
+            <span class="ctrl-val" id="mlPoolSizeVal" style="margin-left:6px">2×2</span>
+          </div>
+          <button class="btn btn-start" id="btnRunUnpool" style="width:100%;justify-content:center;margin-top:8px;font-size:0.75rem;">Jalankan Unpooling</button>
+          <div class="info-box" id="mlPoolInfo" style="margin-top:8px"></div>
+        </div>
+
+        <div style="border:1px solid #3a3b42;border-radius:8px;padding:12px;margin-bottom:12px;">
+          <div style="font-family:'Space Mono',monospace;font-size:0.72rem;color:#a396b3;margin-bottom:8px;font-weight:700;">STEP 1B — REGULARIZATION</div>
+          <p style="font-size:0.72rem;color:#9498a1;margin-bottom:8px;">Regularization mencegah overfitting dengan mengontrol besar bobot model.</p>
+          <div class="control-group">
+            <label class="ctrl-label">Metode:</label>
+            <select id="mlRegMethod" class="ctrl-select" style="width:auto;padding:4px 8px;">
+              <option value="l2" selected>L2 (Ridge)</option>
+              <option value="l1">L1 (Lasso)</option>
+              <option value="dropout">Dropout</option>
+            </select>
+          </div>
+          <div id="regLambdaRow" class="control-group" style="margin-top:8px;display:flex;">
+            <label class="ctrl-label">Lambda (λ): <span id="mlRegLambdaVal">0.010</span></label>
+            <input type="range" id="mlRegLambda" min="0.001" max="0.1" step="0.001" value="0.01" class="ctrl-range"/>
+          </div>
+          <div id="regDropRow" class="control-group" style="margin-top:8px;display:none;">
+            <label class="ctrl-label">Drop Rate: <span id="mlDropRateVal">30%</span></label>
+            <input type="range" id="mlDropRate" min="0.1" max="0.7" step="0.05" value="0.3" class="ctrl-range"/>
+          </div>
+          <button class="btn btn-start" id="btnRunReg" style="width:100%;justify-content:center;margin-top:8px;font-size:0.75rem;">Terapkan Regularization</button>
+        </div>
+
+        <div style="border:1px solid #3a3b42;border-radius:8px;padding:12px;margin-bottom:12px;">
+          <div style="font-family:'Space Mono',monospace;font-size:0.72rem;color:#c99b52;margin-bottom:8px;font-weight:700;">STEP 2 — TAMBAH DATA TRAINING</div>
+          <p style="font-size:0.72rem;color:#9498a1;margin-bottom:8px;">Upload gambar, pilih label emosi, lalu tambahkan ke dataset. Ulangi untuk setiap emosi.</p>
+          <div class="control-group">
+            <label class="ctrl-label">Label Emosi:</label>
+            <select id="mlTrainLabel" class="ctrl-select">
+              <option value="happy">Happy</option>
+              <option value="sad">Sad</option>
+              <option value="angry">Angry</option>
+              <option value="fearful">Fear</option>
+              <option value="disgusted">Disgust</option>
+              <option value="surprised">Surprised</option>
+              <option value="neutral">Neutral</option>
+            </select>
+          </div>
+          <button class="btn btn-start" id="btnAddTraining" style="width:100%;justify-content:center;margin-top:8px;">+ Tambah ke Data Training</button>
+          <div style="font-size:0.7rem;margin-top:8px;" id="mlTrainStatus">Belum ada data training</div>
+        </div>
+
+        <div style="border:1px solid #3a3b42;border-radius:8px;padding:12px;margin-bottom:12px;">
+          <div style="font-family:'Space Mono',monospace;font-size:0.72rem;color:#7fae91;margin-bottom:8px;font-weight:700;">STEP 3 — PREDIKSI & EVALUASI (KNN)</div>
+          <div class="control-group">
+            <label class="ctrl-label">Nilai K: <span id="mlKVal">3</span></label>
+            <input type="range" id="mlK" min="1" max="10" value="3" class="ctrl-range"/>
+          </div>
+          <div class="control-group" style="margin-top:8px;">
+            <label class="ctrl-label">Split Test:</label>
+            <select id="mlTestRatio" class="ctrl-select" style="width:auto;padding:4px 8px;">
+              <option value="0.2" selected>80% Train / 20% Test</option>
+              <option value="0.3">70% Train / 30% Test</option>
+              <option value="0.25">75% Train / 25% Test</option>
+            </select>
+          </div>
+          <button class="btn btn-detect" id="btnPredict" style="width:100%;justify-content:center;margin-top:8px;">Prediksi Emosi</button>
+          <button class="btn btn-start" id="btnEvaluate" style="width:100%;justify-content:center;margin-top:6px;">Evaluasi Model</button>
+        </div>
+
+        <div style="border:1px solid #3a3b42;border-radius:8px;padding:12px;margin-bottom:12px;">
+          <div style="font-family:'Space Mono',monospace;font-size:0.72rem;color:#c99a63;margin-bottom:8px;font-weight:700;">SIMPAN / MUAT DATASET</div>
+          <p style="font-size:0.7rem;color:#8a8d95;margin-bottom:8px;">Export dataset ke CSV agar tidak hilang saat refresh, atau import dari file CSV sebelumnya.</p>
+          <button class="btn" id="btnExportCSV" style="width:100%;justify-content:center;background:rgba(255,170,85,0.15);color:#c99a63;border:1px solid #c99a63;border-radius:6px;padding:7px;font-size:0.75rem;cursor:pointer;margin-bottom:6px;">Export Dataset (CSV)</button>
+          <label style="display:block;width:100%;text-align:center;background:rgba(108,200,255,0.15);color:#7fa3bd;border:1px solid #7fa3bd;border-radius:6px;padding:7px;font-size:0.75rem;cursor:pointer;">
+            Import Dataset (CSV)
+            <input type="file" id="btnImportCSV" accept=".csv" style="display:none"/>
+          </label>
+        </div>
+
+        <button class="btn" id="btnClearDataset" style="width:100%;justify-content:center;background:rgba(194,113,122,0.15);color:#c2717a;border:1px solid #c2717a;border-radius:6px;padding:7px;font-size:0.75rem;cursor:pointer;margin-top:4px;">Hapus Semua Data Training</button>
+      </div>
+
+      <div class="prep-canvas-area">
+        <div class="canvas-box">
+          <div class="canvas-label">Setelah Normalisasi (Min-Max)</div>
+          <canvas id="mlNormCanvas"></canvas>
+          <div class="canvas-desc">Normalisasi min-max: nilai piksel diubah ke range [0,1]. Visualisasi ditampilkan dalam grayscale ternormalisasi yang di-stretch penuh.</div>
+          <div class="info-box" id="mlNormInfo" style="margin-top:6px"></div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Max Pooling</div>
+          <canvas id="mlMaxPoolCanvas"></canvas>
+          <div class="canvas-desc">Max Pooling mengambil nilai maksimum dari setiap window pool. Mempertahankan fitur paling dominan dan mengurangi dimensi data.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Average Pooling</div>
+          <canvas id="mlAvgPoolCanvas"></canvas>
+          <div class="canvas-desc">Average Pooling mengambil nilai rata-rata dari setiap window pool. Menghasilkan representasi yang lebih halus dibanding max pooling.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Pooled Map (setelah Max Pooling)</div>
+          <canvas id="mlPooledSmallCanvas"></canvas>
+          <div class="canvas-desc">Hasil max pooling dalam ukuran yang diperkecil. Ini yang menjadi input proses unpooling.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Unpooling (Switch Unpooling)</div>
+          <canvas id="mlUnpoolCanvas"></canvas>
+          <div class="canvas-desc">Unpooling mengembalikan pooled map ke ukuran semula. Nilai max dikembalikan ke posisi aslinya (switch map), posisi lain = 0 (sparse). Titik putih = nilai yang direstore.</div>
+          <div class="info-box" id="mlUnpoolInfo" style="margin-top:6px"></div>
+        </div>
+        <div class="canvas-box full-width">
+          <div class="canvas-label">Regularization — Kontrol Bobot Model</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+              <div style="font-size:0.68rem;color:#a3a6ad;margin-bottom:4px;font-family:'Space Mono',monospace">SEBELUM REGULARIZATION</div>
+              <canvas id="mlOrigCanvas" style="width:100%;max-width:200px"></canvas>
+            </div>
+            <div>
+              <div style="font-size:0.68rem;color:#a396b3;margin-bottom:4px;font-family:'Space Mono',monospace">SESUDAH REGULARIZATION</div>
+              <canvas id="mlRegCanvas" style="width:100%;max-width:200px"></canvas>
+            </div>
+          </div>
+          <div style="margin-top:10px;">
+            <div style="font-size:0.68rem;color:#a3a6ad;margin-bottom:4px;font-family:'Space Mono',monospace">DISTRIBUSI BOBOT (Histogram)</div>
+            <canvas id="mlRegHistCanvas" width="400" height="160"></canvas>
+          </div>
+          <div class="info-box" id="mlRegInfo" style="margin-top:8px"></div>
+          <div class="canvas-desc" style="margin-top:6px">
+            <strong style="color:#c99b52">L1 (Lasso)</strong>: mendorong bobot ke nol → sparsity.<br>
+            <strong style="color:#7fa3bd">L2 (Ridge)</strong>: mengecilkan semua bobot → weight decay.<br>
+            <strong style="color:#7fae91">Dropout</strong>: mematikan neuron secara acak → mencegah co-adaptation.
+          </div>
+        </div>
+        <div class="canvas-box full-width">
+          <div class="canvas-label">Dataset Training (<span id="mlDatasetCount">0</span> sampel)</div>
+          <div style="font-size:0.7rem;color:#8a8d95;margin-bottom:8px;font-family:'Space Mono',monospace;">Sumber: Gambar yang diupload user • Fitur: Histogram 64-bin + Mean + Std + Edge (67 dimensi)</div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-family:'Space Mono',monospace;font-size:0.72rem;">
+              <thead>
+                <tr style="border-bottom:1px solid #3a3b42;">
+                  <th style="text-align:left;padding:5px 8px;color:#6f93b8;">Label</th>
+                  <th style="text-align:center;padding:5px 8px;color:#6f93b8;">Jumlah</th>
+                  <th style="text-align:center;padding:5px 8px;color:#6f93b8;">Persentase</th>
+                  <th style="text-align:center;padding:5px 8px;color:#6f93b8;">Dimensi Fitur</th>
+                </tr>
+              </thead>
+              <tbody id="mlDatasetBody">
+                <tr><td colspan="4" style="text-align:center;color:#8a8d95;padding:12px">Belum ada data training</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="canvas-box full-width">
+          <div class="canvas-label">Hasil Prediksi KNN</div>
+          <div id="mlPredResult" style="padding:8px;">
+            <p style="color:#8a8d95;font-size:0.78rem">Belum ada prediksi. Tambah data training (min. 2 kelas) lalu klik Prediksi Emosi.</p>
+          </div>
+        </div>
+        <div class="canvas-box full-width">
+          <div class="canvas-label">Evaluasi Model — Accuracy, Precision, Recall, F1-Score & Confusion Matrix</div>
+          <div id="mlEvalResult" style="padding:8px;">
+            <p style="color:#8a8d95;font-size:0.78rem">Belum ada hasil evaluasi. Tambah data training (min. 4 sampel, 2 kelas) lalu klik Evaluasi Model.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: TECHNIC -->
+  <div class="tab-content" id="tab-technic">
+    <div class="prep-layout">
+      <div class="prep-sidebar">
+        <h2 class="prep-title">Teknik Preprocessing</h2>
+        <p class="prep-desc">Terapkan teknik-teknik dasar: sampling (resize), quantization (reduksi bit), dan penambahan noise Gaussian / Salt&amp;Pepper.</p>
+        <div class="control-group">
+          <label class="ctrl-label">Sampling — Resize ke:</label>
+          <select id="techSampleSize" class="ctrl-select">
+            <option value="256">256 × 256</option>
+            <option value="128">128 × 128</option>
+            <option value="64">64 × 64</option>
+            <option value="32">32 × 32</option>
+            <option value="16">16 × 16</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Quantization — Level bit:</label>
+          <select id="techQuantBit" class="ctrl-select">
+            <option value="8">8-bit (256 level)</option>
+            <option value="4">4-bit (16 level)</option>
+            <option value="2">2-bit (4 level)</option>
+            <option value="1">1-bit (binary)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Noise:</label>
+          <select id="techNoiseType" class="ctrl-select">
+            <option value="none">Tidak ada</option>
+            <option value="gaussian">Gaussian Noise</option>
+            <option value="salt">Salt &amp; Pepper</option>
+          </select>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <input type="range" id="techNoiseLevel" min="0" max="100" value="20" class="ctrl-range" style="flex:1"/>
+            <span class="ctrl-val" id="techNoiseLevelVal">20</span>
+          </div>
+        </div>
+        <button class="btn btn-start" id="btnApplyTech" style="margin-top:12px;width:100%;justify-content:center;">Terapkan</button>
+      </div>
+      <div class="prep-canvas-area">
+        <div class="canvas-box"><div class="canvas-label">Gambar Asli</div><canvas id="techOrigCanvas"></canvas></div>
+        <div class="canvas-box"><div class="canvas-label">Hasil Sampling</div><canvas id="techSampleCanvas"></canvas></div>
+        <div class="canvas-box"><div class="canvas-label">Hasil Quantization</div><canvas id="techQuantCanvas"></canvas></div>
+        <div class="canvas-box"><div class="canvas-label">Hasil Noise</div><canvas id="techNoiseCanvas"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: CONVOLUTION -->
+  <div class="tab-content" id="tab-convolution">
+    <div class="prep-layout">
+      <div class="prep-sidebar">
+        <h2 class="prep-title">Convolution</h2>
+        <p class="prep-desc">Operasi konvolusi menerapkan kernel (filter) pada setiap piksel. Pilih kernel untuk melihat efek blur, sharpen, edge detection, atau emboss.</p>
+        <div class="control-group">
+          <label class="ctrl-label">Pilih Kernel:</label>
+          <select id="convKernelSelect" class="ctrl-select">
+            <option value="identity">Identity (Original)</option>
+            <option value="blur3">Box Blur 3×3</option>
+            <option value="blur5">Gaussian Blur 5×5</option>
+            <option value="sharpen">Sharpen</option>
+            <option value="edgeSobel">Sobel Edge (X)</option>
+            <option value="edgeSobelY">Sobel Edge (Y)</option>
+            <option value="edgeLaplace">Laplacian Edge</option>
+            <option value="emboss">Emboss</option>
+          </select>
+        </div>
+        <h3 class="scores-title" style="margin-top:10px">Kernel Matrix:</h3>
+        <div class="kernel-display" id="kernelDisplay"></div>
+        <div class="info-box" style="margin-top:8px">
+          <div class="info-row"><span>Ukuran</span><span id="convKernelSize">—</span></div>
+          <div class="info-row"><span>Operasi</span><span id="convOp">—</span></div>
+        </div>
+        <button class="btn btn-start" id="btnApplyConv" style="margin-top:12px;width:100%;justify-content:center;">Terapkan Convolution</button>
+      </div>
+      <div class="prep-canvas-area">
+        <div class="canvas-box">
+          <div class="canvas-label">Gambar Asli</div>
+          <canvas id="convOrigCanvas"></canvas>
+          <div class="canvas-desc">Gambar input sebelum diproses. Semua konvolusi dilakukan pada versi grayscale dari gambar ini.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Hasil Convolution</div>
+          <canvas id="convResultCanvas"></canvas>
+          <div class="canvas-desc">Hasil discrete 2D spatial convolution dengan kernel yang dipilih (<span id="convKernelNameDesc">—</span>). Zero-padding menjaga ukuran output sama dengan input.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Grayscale Input</div>
+          <canvas id="convGrayCanvas"></canvas>
+          <div class="canvas-desc">Konversi RGB ke grayscale dengan bobot luminansi: 0.299R + 0.587G + 0.114B. Ini adalah input yang masuk ke fungsi convolve().</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Sobel Gradient Magnitude</div>
+          <canvas id="convMagCanvas"></canvas>
+          <div class="canvas-desc">Magnitude = √(Gx² + Gy²), dihitung dari Sobel X dan Sobel Y. Area terang = tepi kuat. Dihitung otomatis terlepas kernel yang dipilih.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 5: MORPHOLOGY -->
+  <div class="tab-content" id="tab-morphology">
+    <div class="prep-layout">
+      <div class="prep-sidebar">
+        <h2 class="prep-title">Morphology</h2>
+        <p class="prep-desc">Operasi morfologi bekerja pada citra biner. Terapkan Erosi, Dilasi, Opening, dan Closing untuk memanipulasi bentuk objek secara struktural.</p>
+        <div class="control-group">
+          <label class="ctrl-label">Threshold Binarisasi: <span id="morphThreshVal">128</span></label>
+          <input type="range" id="morphThresh" min="10" max="245" value="128" class="ctrl-range"/>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Ukuran Kernel Struktural:</label>
+          <select id="morphKernelSize" class="ctrl-select">
+            <option value="3">3 × 3</option>
+            <option value="5">5 × 5</option>
+            <option value="7">7 × 7</option>
+          </select>
+        </div>
+        <div class="info-box">
+          <div class="info-row"><span>Erosi</span><span style="color:#7fa3bd;font-size:0.7rem">Susut objek putih</span></div>
+          <div class="info-row"><span>Dilasi</span><span style="color:#c99b52;font-size:0.7rem">Perbesar objek putih</span></div>
+          <div class="info-row"><span>Opening</span><span style="color:#7fae91;font-size:0.7rem">Erosi → Dilasi</span></div>
+          <div class="info-row"><span>Closing</span><span style="color:#83a0ac;font-size:0.7rem">Dilasi → Erosi</span></div>
+          <div class="info-row"><span>Morph. Gradient</span><span style="color:#a396b3;font-size:0.7rem">Dilasi − Erosi</span></div>
+        </div>
+        <button class="btn btn-start" id="btnApplyMorph" style="margin-top:12px;width:100%;justify-content:center;">Terapkan Morphology</button>
+      </div>
+      <div class="prep-canvas-area">
+        <div class="canvas-box">
+          <div class="canvas-label">Citra Biner (Threshold)</div>
+          <canvas id="morphBinCanvas"></canvas>
+          <div class="canvas-desc">Citra diubah ke biner menggunakan nilai threshold. Piksel &gt; threshold → putih (1), di bawah → hitam (0). Ini adalah input semua operasi morfologi.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Erosi</div>
+          <canvas id="morphEroCanvas"></canvas>
+          <div class="canvas-desc">Erosi: piksel putih dipertahankan hanya jika seluruh structuring element cocok. Objek mengecil, noise kecil hilang. SE: kotak <span id="morphSELabel">3×3</span>.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Dilasi</div>
+          <canvas id="morphDilCanvas"></canvas>
+          <div class="canvas-desc">Dilasi: piksel hitam di sekitar piksel putih ikut diputihkan. Objek membesar dan celah kecil terisi. Kebalikan dari erosi.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Opening (Erosi → Dilasi)</div>
+          <canvas id="morphOpenCanvas"></canvas>
+          <div class="canvas-desc">Opening = erosi diikuti dilasi. Menghilangkan noise kecil (titik putih terisolasi) tanpa mengubah ukuran objek besar secara signifikan.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Closing (Dilasi → Erosi)</div>
+          <canvas id="morphCloseCanvas"></canvas>
+          <div class="canvas-desc">Closing = dilasi diikuti erosi. Menutup lubang kecil di dalam objek putih dan menyambungkan celah sempit antar objek.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Morphological Gradient (Dilasi − Erosi)</div>
+          <canvas id="morphGradCanvas"></canvas>
+          <div class="canvas-desc">Gradient morfologi = selisih dilasi dan erosi per piksel. Hasilnya kontur/tepi objek biner — serupa deteksi tepi namun berbasis operasi morfologi.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 6: FEATURE DETECTION -->
+  <div class="tab-content" id="tab-feature">
+    <div class="prep-layout">
+      <div class="prep-sidebar">
+        <h2 class="prep-title">Feature Detection &amp; Matching</h2>
+        <p class="prep-desc">Deteksi fitur lokal menggunakan Harris Corner, Blob Detection, dan Canny Edge. Upload gambar kedua untuk feature matching.</p>
+        <div class="control-group">
+          <label class="ctrl-label">Metode Deteksi:</label>
+          <select id="featMethod" class="ctrl-select">
+            <option value="harris">Harris Corner Detector</option>
+            <option value="blob">Simple Blob Detector</option>
+            <option value="edge">Canny Edge + Contour</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="ctrl-label">Sensitivitas: <span id="featThreshVal">30</span></label>
+          <input type="range" id="featThresh" min="1" max="100" value="30" class="ctrl-range"/>
+        </div>
+        <div class="info-box">
+          <div class="info-row"><span>Fitur Terdeteksi</span><span id="featCount">—</span></div>
+          <div class="info-row"><span>Metode</span><span id="featMethodLabel">—</span></div>
+        </div>
+        <button class="btn btn-start" id="btnApplyFeat" style="margin-top:12px;width:100%;justify-content:center;">Deteksi Fitur</button>
+        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+          <h3 class="scores-title">Feature Matching</h3>
+          <p class="prep-desc" style="font-size:0.73rem;margin-bottom:8px;">Upload gambar kedua untuk mencocokkan fitur (patch-based matching).</p>
+          <label class="upload-label" style="padding:10px 12px;"><span class="upload-icon" style="font-size:1rem">↑</span><span style="font-size:0.75rem">Upload Gambar 2</span><input type="file" id="featImgInput2" accept="image/*" hidden /></label>
+          <div class="info-box" style="margin-top:8px">
+            <div class="info-row"><span>Match Ditemukan</span><span id="matchCount">—</span></div>
+          </div>
+          <button class="btn btn-detect" id="btnMatch" style="margin-top:8px;width:100%;justify-content:center;">Cocokkan Fitur</button>
+        </div>
+      </div>
+      <div class="prep-canvas-area">
+        <div class="canvas-box">
+          <div class="canvas-label">Gambar 1 + Fitur Terdeteksi</div>
+          <canvas id="featResultCanvas"></canvas>
+          <div class="canvas-desc">Fitur yang terdeteksi divisualisasikan sebagai lingkaran/silang pada gambar berwarna. <span id="featCountDesc">—</span> titik fitur terdeteksi dengan threshold <span id="featThreshDesc">—</span>.</div>
+        </div>
+        <div class="canvas-box">
+          <div class="canvas-label">Grayscale + Overlay Fitur</div>
+          <canvas id="featGrayCanvas"></canvas>
+          <div class="canvas-desc">Overlay yang sama pada citra grayscale. Harris Corner menggunakan struktur tensor M (det(M) − k·trace(M)²) untuk menemukan sudut-sudut yang kuat.</div>
+        </div>
+        <div class="canvas-box full-width">
+          <div class="canvas-label">Feature Matching — Gambar 1 vs Gambar 2</div>
+          <canvas id="featMatchCanvas"></canvas>
+          <div class="canvas-desc">Pencocokan fitur menggunakan patch-based SAD (Sum of Absolute Differences) dengan patch 7×7 piksel. Metode ini sederhana namun tidak invariant terhadap rotasi/skala. Garis menghubungkan titik-titik yang paling mirip antar kedua gambar.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>EmoScan — Implementasi Preprocessing Citra | CNN + TensorFlow.js + Pengolahan Citra Digital</p>
+  </footer>
+
+  <script src="static/js/shared.js"></script>
+  <script src="static/js/face-api.min.js"></script>
+  <script src="static/js/app.js"></script>
+  <script src="static/js/preprocessing.js"></script>
+  <script src="static/js/ml.js"></script>
+</body>
+</html>

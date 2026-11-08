@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EmoScan — Dataset Collection</title>
+<link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-bg-grid"></div>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">EMOSCAN</span>
+      </div>
+      <div class="header-sub">Sistem Deteksi Emosi Wajah — Machine Learning Pipeline</div>
+    </div>
+  </div>
+
+  <div class="app-nav">
+    <a href="dataset.html" class="active"><span class="step-num">1</span> Dataset Collection</a>
+    <a href="training.html"><span class="step-num">2</span> Training</a>
+    <a href="evaluation.html"><span class="step-num">3</span> Evaluation</a>
+    <a href="index.html"><span class="step-num">4</span> Deteksi Emosi (Inference)</a>
+  </div>
+
+  <div class="page-wrap">
+    <div class="page-title">Dataset Collection</div>
+    <div class="page-desc">
+      Tahap pertama pipeline Machine Learning: mengumpulkan data training. Nyalakan kamera, pilih label emosi yang sedang diekspresikan, lalu ambil sampel. Sistem akan mengekstraksi fitur wajah (histogram, mean, std, edge) dan menyimpannya sebagai pasangan <strong>fitur + label</strong>.
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Kamera &amp; Capture</div>
+        <video id="webcam" class="video-frame" autoplay muted playsinline></video>
+        <canvas id="captureCanvas" style="display:none"></canvas>
+
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button id="btnStartCam" class="btn btn-start" style="flex:1;justify-content:center;">▶ Mulai Kamera</button>
+          <button id="btnStopCam" class="btn" style="flex:1;justify-content:center;background:rgba(194,113,122,0.15);color:#c2717a;border:1px solid #c2717a;border-radius:6px;padding:8px;cursor:pointer;" disabled>⏹ Stop</button>
+        </div>
+
+        <div style="margin-top:14px;">
+          <label style="font-family:'Space Mono',monospace;font-size:0.75rem;color:var(--text-dim);display:block;margin-bottom:8px;">Pilih Label Emosi:</label>
+          <div id="labelPills" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        </div>
+
+        <button id="btnCapture" class="btn btn-detect btn-block" style="margin-top:14px;" disabled>Capture Sample</button>
+
+        <div id="captureStatus" style="margin-top:10px;font-size:0.75rem;color:var(--text-dim);text-align:center;">
+          Kamera belum aktif
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-title">Alternatif: Upload Gambar</div>
+          <p style="font-size:0.75rem;color:var(--text-dim);margin-bottom:10px;">
+            Tidak punya webcam? Upload gambar wajah secara manual.
+          </p>
+          <input type="file" id="uploadInput" accept="image/*" style="display:none">
+          <button id="btnUploadTrigger" class="btn btn-block" style="background:rgba(108,200,255,0.15);color:#7fa3bd;border:1px solid #7fa3bd;border-radius:6px;padding:9px;cursor:pointer;">Upload Gambar Wajah</button>
+          <canvas id="uploadPreview" style="display:none;width:100%;border-radius:8px;margin-top:10px;"></canvas>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Statistik Dataset</div>
+          <div class="grid-4" id="datasetStats"></div>
+          <div style="margin-top:14px;">
+            <div id="datasetBars"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Kelola Dataset</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="btnExportCSV" class="btn" style="flex:1;background:rgba(255,170,85,0.15);color:#c99a63;border:1px solid #c99a63;border-radius:6px;padding:8px;cursor:pointer;font-size:0.75rem;">Export CSV</button>
+            <label style="flex:1;text-align:center;background:rgba(108,200,255,0.15);color:#7fa3bd;border:1px solid #7fa3bd;border-radius:6px;padding:8px;cursor:pointer;font-size:0.75rem;">
+              Import CSV
+              <input type="file" id="btnImportCSV" accept=".csv" style="display:none">
+            </label>
+            <button id="btnClearAll" class="btn" style="flex:1;background:rgba(194,113,122,0.15);color:#c2717a;border:1px solid #c2717a;border-radius:6px;padding:8px;cursor:pointer;font-size:0.75rem;">Hapus Semua</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Data Training Tersimpan (<span id="datasetCount">0</span> sampel)</div>
+      <div id="datasetTable" style="overflow-x:auto;"></div>
+    </div>
+
+    <div style="text-align:center;margin-top:20px;">
+      <a href="training.html" class="btn btn-start" style="text-decoration:none;display:inline-flex;padding:10px 28px;">
+        Lanjut ke Training Model
+      </a>
+    </div>
+  </div>
+
+  <script src="static/js/shared.js"></script>
+  <script>
+    let stream = null;
+    let selectedLabel = 'happy';
+    let dataset = loadDataset();
+
+    function renderLabelPills() {
+      const container = document.getElementById('labelPills');
+      container.innerHTML = ML_PIPELINE_EMOTIONS.map(e => `
+        <button class="label-pill ${e===selectedLabel?'selected':''}"
+                data-label="${e}"
+                style="color:${ML_PIPELINE_COLORS[e]};${e===selectedLabel?`background:${ML_PIPELINE_COLORS[e]}22;`:''}">
+          ${ML_PIPELINE_LABELS[e]}
+        </button>
+      `).join('');
+      container.querySelectorAll('.label-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedLabel = btn.dataset.label;
+          renderLabelPills();
+        });
+      });
+    }
+    renderLabelPills();
+
+    const video = document.getElementById('webcam');
+    const btnStart = document.getElementById('btnStartCam');
+    const btnStop = document.getElementById('btnStopCam');
+    const btnCapture = document.getElementById('btnCapture');
+    const statusEl = document.getElementById('captureStatus');
+
+    btnStart.addEventListener('click', async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width:480, height:360 } });
+        video.srcObject = stream;
+        btnStart.disabled = true;
+        btnStop.disabled = false;
+        btnCapture.disabled = false;
+        statusEl.textContent = 'Kamera aktif — pilih label lalu klik Capture';
+        statusEl.style.color = '#7fae91';
+      } catch (e) {
+        statusEl.textContent = 'Gagal mengakses kamera: ' + e.message;
+        statusEl.style.color = '#c2717a';
+      }
+    });
+
+    btnStop.addEventListener('click', () => {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+      btnStart.disabled = false;
+      btnStop.disabled = true;
+      btnCapture.disabled = true;
+      statusEl.textContent = 'Kamera dihentikan';
+      statusEl.style.color = 'var(--text-dim)';
+    });
+
+    btnCapture.addEventListener('click', () => {
+      const canvas = document.getElementById('captureCanvas');
+      const w = video.videoWidth || 480, h = video.videoHeight || 360;
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, w, h);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      addSample(imageData, w, h, selectedLabel);
+      statusEl.textContent = `Sampel "${ML_PIPELINE_LABELS[selectedLabel]}" ditambahkan!`;
+      statusEl.style.color = ML_PIPELINE_COLORS[selectedLabel];
+      setTimeout(() => {
+        if (stream) { statusEl.textContent = 'Kamera aktif — pilih label lalu klik Capture'; statusEl.style.color = 'var(--text-dim)'; }
+      }, 1000);
+    });
+
+    document.getElementById('btnUploadTrigger').addEventListener('click', () => {
+      document.getElementById('uploadInput').click();
+    });
+
+    document.getElementById('uploadInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.getElementById('uploadPreview');
+        const w = img.width, h = img.height;
+        canvas.width = w; canvas.height = h;
+        canvas.style.display = 'block';
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const imageData = ctx.getImageData(0, 0, w, h);
+        addSample(imageData, w, h, selectedLabel);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+    function addSample(imageData, w, h, label) {
+      const features = extractFeaturesShared(imageData, w, h);
+      dataset.push({
+        id: Date.now() + '_' + Math.random().toString(36).slice(2,7),
+        features, label,
+        capturedAt: new Date().toISOString()
+      });
+      saveDataset(dataset);
+      renderDatasetStats();
+      renderDatasetTable();
+    }
+
+    function renderDatasetStats() {
+      document.getElementById('datasetCount').textContent = dataset.length;
+      const counts = {}; ML_PIPELINE_EMOTIONS.forEach(e => counts[e]=0);
+      dataset.forEach(d => counts[d.label]++);
+      const classesUsed = ML_PIPELINE_EMOTIONS.filter(e => counts[e]>0).length;
+      const statsEl = document.getElementById('datasetStats');
+      statsEl.innerHTML = `
+        <div class="stat-box"><div class="val" style="color:#7fae91">${dataset.length}</div><div class="lbl">Total Sampel</div></div>
+        <div class="stat-box"><div class="val" style="color:#7fa3bd">${classesUsed}/7</div><div class="lbl">Kelas Terisi</div></div>
+        <div class="stat-box"><div class="val" style="color:#c99b52">${Math.min(...ML_PIPELINE_EMOTIONS.map(e=>counts[e]))}</div><div class="lbl">Min per Kelas</div></div>
+        <div class="stat-box"><div class="val" style="color:#a396b3">${Math.max(...ML_PIPELINE_EMOTIONS.map(e=>counts[e]))}</div><div class="lbl">Max per Kelas</div></div>
+      `;
+      const barsEl = document.getElementById('datasetBars');
+      const maxC = Math.max(...ML_PIPELINE_EMOTIONS.map(x=>counts[x]),1);
+      barsEl.innerHTML = ML_PIPELINE_EMOTIONS.map(e => {
+        const pct = dataset.length>0 ? (counts[e]/maxC*100) : 0;
+        return `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="width:80px;font-size:0.7rem;color:${ML_PIPELINE_COLORS[e]}">${ML_PIPELINE_LABELS[e]}</span>
+            <div class="progress-track" style="flex:1;">
+              <div class="progress-fill" style="width:${pct}%;background:${ML_PIPELINE_COLORS[e]}"></div>
+            </div>
+            <span style="font-size:0.7rem;color:var(--text-dim);width:30px;text-align:right">${counts[e]}</span>
+          </div>`;
+      }).join('');
+    }
+
+    function renderDatasetTable() {
+      const el = document.getElementById('datasetTable');
+      if (dataset.length === 0) {
+        el.innerHTML = `<div class="empty-state">Belum ada data training. Mulai kamera dan capture sampel.</div>`;
+        return;
+      }
+      const recent = dataset.slice(-15).reverse();
+      el.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-family:'Space Mono',monospace;font-size:0.72rem;">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:6px;color:var(--accent)">Label</th>
+            <th style="text-align:left;padding:6px;color:var(--accent)">Waktu</th>
+            <th style="text-align:center;padding:6px;color:var(--accent)">Dimensi Fitur</th>
+            <th style="text-align:center;padding:6px;color:var(--accent)">Aksi</th>
+          </tr></thead>
+          <tbody>
+            ${recent.map(d => `
+              <tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:6px;color:${ML_PIPELINE_COLORS[d.label]}">${ML_PIPELINE_LABELS[d.label]}</td>
+                <td style="padding:6px;color:var(--text-dim)">${new Date(d.capturedAt).toLocaleTimeString('id-ID')}</td>
+                <td style="padding:6px;text-align:center;color:var(--text-dim)">${d.features.length}</td>
+                <td style="padding:6px;text-align:center;">
+                  <button onclick="deleteSample('${d.id}')" style="background:none;border:none;color:#c2717a;cursor:pointer;font-size:0.85rem;">Hapus</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        ${dataset.length > 15 ? `<div style="text-align:center;padding:8px;color:var(--text-dim);font-size:0.7rem;">Menampilkan 15 terbaru dari ${dataset.length} total</div>` : ''}
+      `;
+    }
+
+    function deleteSample(id) {
+      dataset = dataset.filter(d => d.id !== id);
+      saveDataset(dataset);
+      renderDatasetStats();
+      renderDatasetTable();
+    }
+
+    document.getElementById('btnExportCSV').addEventListener('click', () => {
+      if (dataset.length === 0) { alert('Dataset masih kosong.'); return; }
+      downloadCSV(datasetToCSV(dataset), 'emoscan_dataset.csv');
+    });
+
+    document.getElementById('btnImportCSV').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const result = csvToDataset(ev.target.result);
+        dataset.push(...result.dataset);
+        saveDataset(dataset);
+        renderDatasetStats();
+        renderDatasetTable();
+        alert(`Import selesai: ${result.imported} sampel berhasil, ${result.skipped} dilewati.`);
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
+
+    document.getElementById('btnClearAll').addEventListener('click', () => {
+      if (!confirm('Hapus SEMUA data training? Tindakan ini tidak dapat dibatalkan.')) return;
+      dataset = [];
+      clearDataset();
+      renderDatasetStats();
+      renderDatasetTable();
+    });
+
+    renderDatasetStats();
+    renderDatasetTable();
+  </script>
+</body>
+</html>

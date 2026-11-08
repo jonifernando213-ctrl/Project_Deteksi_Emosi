@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EmoScan — Model Evaluation</title>
+<link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-bg-grid"></div>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">EMOSCAN</span>
+      </div>
+      <div class="header-sub">Sistem Deteksi Emosi Wajah — Machine Learning Pipeline</div>
+    </div>
+  </div>
+
+  <div class="app-nav">
+    <a href="dataset.html"><span class="step-num">1</span> Dataset Collection</a>
+    <a href="training.html"><span class="step-num">2</span> Training</a>
+    <a href="evaluation.html" class="active"><span class="step-num">3</span> Evaluation</a>
+    <a href="index.html"><span class="step-num">4</span> Deteksi Emosi (Inference)</a>
+  </div>
+
+  <div class="page-wrap">
+    <div class="page-title">Model Evaluation</div>
+    <div class="page-desc">
+      Tahap ketiga: menilai performa model menggunakan data uji (test set) yang tidak dipakai saat training. Dihitung Accuracy, Precision, Recall, F1-Score, dan Confusion Matrix untuk mengetahui seberapa baik model memprediksi setiap kelas emosi.
+    </div>
+
+    <div class="card" id="noModelCard" style="display:none;">
+      <div class="empty-state">
+        Belum ada model yang dilatih.<br>
+        Silakan ke halaman <a href="training.html" style="color:var(--accent)">Training</a> terlebih dahulu.
+      </div>
+    </div>
+
+    <div id="evalContent">
+      <div class="card">
+        <div class="card-title">Parameter Evaluasi</div>
+        <div class="grid-2">
+          <div>
+            <label style="font-family:'Space Mono',monospace;font-size:0.78rem;color:var(--text-dim);">
+              Nilai K: <span id="evalKVal" style="color:var(--accent);font-weight:700">3</span>
+            </label>
+            <input type="range" id="evalKSlider" min="1" max="15" value="3" style="width:100%;margin-top:6px;">
+          </div>
+          <div>
+            <label style="font-family:'Space Mono',monospace;font-size:0.78rem;color:var(--text-dim);">Split Train/Test:</label>
+            <select id="testRatioSelect" style="width:100%;margin-top:6px;padding:8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'Space Mono',monospace;font-size:0.78rem;">
+              <option value="0.2" selected>80% Train / 20% Test</option>
+              <option value="0.25">75% Train / 25% Test</option>
+              <option value="0.3">70% Train / 30% Test</option>
+            </select>
+          </div>
+        </div>
+        <button id="btnEvaluate" class="btn btn-detect btn-block" style="margin-top:14px;">Jalankan Evaluasi</button>
+      </div>
+
+      <div id="evalResults" style="display:none;">
+        <div class="card">
+          <div class="card-title">Ringkasan Metrik</div>
+          <div class="grid-4" id="metricCards"></div>
+          <div id="splitInfo" style="margin-top:12px;font-size:0.72rem;color:var(--text-dim);font-family:'Space Mono',monospace;text-align:center;"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Metrik per Kelas Emosi</div>
+          <div style="overflow-x:auto;" id="perClassTable"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Confusion Matrix</div>
+          <div style="overflow-x:auto;" id="confusionMatrix"></div>
+          <div style="margin-top:10px;font-size:0.7rem;color:var(--text-dim);">
+            Diagonal = prediksi benar &nbsp;|&nbsp; Luar diagonal = prediksi salah
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:20px;display:flex;justify-content:center;gap:12px;">
+      <a href="training.html" class="btn" style="text-decoration:none;display:inline-flex;padding:10px 24px;background:var(--bg3);color:var(--text-dim);border:1px solid var(--border);border-radius:6px;">Kembali ke Training</a>
+      <a href="index.html" class="btn btn-start" style="text-decoration:none;display:inline-flex;padding:10px 24px;">Lanjut ke Deteksi Emosi</a>
+    </div>
+  </div>
+
+  <script src="static/js/shared.js"></script>
+  <script>
+    const dataset = loadDataset();
+    const model = loadModel();
+
+    if (!model || dataset.length === 0) {
+      document.getElementById('noModelCard').style.display = 'block';
+      document.getElementById('evalContent').style.display = 'none';
+    } else {
+      document.getElementById('evalKSlider').value = model.k;
+      document.getElementById('evalKVal').textContent = model.k;
+    }
+
+    document.getElementById('evalKSlider').addEventListener('input', (e) => {
+      document.getElementById('evalKVal').textContent = e.target.value;
+    });
+
+    document.getElementById('btnEvaluate').addEventListener('click', () => {
+      const k = parseInt(document.getElementById('evalKSlider').value);
+      const testRatio = parseFloat(document.getElementById('testRatioSelect').value);
+
+      if (dataset.length < 4) {
+        alert('Dataset terlalu sedikit untuk evaluasi. Minimal 4 sampel dari 2 kelas.');
+        return;
+      }
+
+      const result = evaluateKNN(dataset, k, testRatio);
+      if (!result) {
+        alert('Evaluasi gagal. Pastikan dataset punya minimal 2 kelas berbeda.');
+        return;
+      }
+
+      saveEvalResult(result);
+      displayEvaluation(result);
+    });
+
+    function displayEvaluation(ev) {
+      document.getElementById('evalResults').style.display = 'block';
+
+      document.getElementById('metricCards').innerHTML = [
+        ['Accuracy',  fmtPct(ev.accuracy),  '#7fae91'],
+        ['Precision', fmtPct(ev.macroP),    '#7fa3bd'],
+        ['Recall',    fmtPct(ev.macroR),    '#c99b52'],
+        ['F1-Score',  fmtPct(ev.macroF1),   '#a396b3']
+      ].map(([label,val,color]) => `
+        <div class="stat-box" style="border-color:${color}44">
+          <div class="val" style="color:${color}">${val}</div>
+          <div class="lbl">${label}</div>
+        </div>`).join('');
+
+      document.getElementById('splitInfo').textContent =
+        `K=${ev.k} | Train: ${ev.trainSize} sampel (${Math.round((1-ev.testRatio)*100)}%) | Test: ${ev.testSize} sampel (${Math.round(ev.testRatio*100)}%)`;
+
+      const rows = ev.activeLabels.map(e => `
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 10px;color:${ML_PIPELINE_COLORS[e]};font-weight:700">${ML_PIPELINE_LABELS[e]}</td>
+          <td style="text-align:center;padding:6px 10px;color:#7fa3bd">${fmtPct(ev.metrics[e].precision)}</td>
+          <td style="text-align:center;padding:6px 10px;color:#c99b52">${fmtPct(ev.metrics[e].recall)}</td>
+          <td style="text-align:center;padding:6px 10px;color:#a396b3">${fmtPct(ev.metrics[e].f1)}</td>
+          <td style="text-align:center;padding:6px 10px;color:#7fae91">${ev.metrics[e].tp}</td>
+        </tr>`).join('');
+
+      document.getElementById('perClassTable').innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-family:'Space Mono',monospace;font-size:0.75rem;">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:6px 10px;color:var(--text-dim)">Kelas</th>
+            <th style="text-align:center;padding:6px 10px;color:#7fa3bd">Precision</th>
+            <th style="text-align:center;padding:6px 10px;color:#c99b52">Recall</th>
+            <th style="text-align:center;padding:6px 10px;color:#a396b3">F1-Score</th>
+            <th style="text-align:center;padding:6px 10px;color:#7fae91">TP</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr style="border-top:1px solid var(--border);font-weight:700">
+            <td style="padding:6px 10px;color:var(--text)">Macro Average</td>
+            <td style="text-align:center;padding:6px 10px;color:#7fa3bd">${fmtPct(ev.macroP)}</td>
+            <td style="text-align:center;padding:6px 10px;color:#c99b52">${fmtPct(ev.macroR)}</td>
+            <td style="text-align:center;padding:6px 10px;color:#a396b3">${fmtPct(ev.macroF1)}</td>
+            <td style="text-align:center;padding:6px 10px;color:var(--text-dim)">—</td>
+          </tr></tfoot>
+        </table>`;
+
+      document.getElementById('confusionMatrix').innerHTML = buildConfusionMatrixHTML(ev.cm, ev.activeLabels);
+    }
+
+    function buildConfusionMatrixHTML(cm, labels) {
+      const shortLabel = e => e.charAt(0).toUpperCase() + e.slice(1,3);
+      let maxVal = 0;
+      labels.forEach(a => labels.forEach(p => { if (cm[a][p] > maxVal) maxVal = cm[a][p]; }));
+
+      const headerCells = labels.map(e =>
+        `<th style="padding:5px 8px;font-size:0.65rem;color:${ML_PIPELINE_COLORS[e]}">${shortLabel(e)}</th>`
+      ).join('');
+
+      const rows = labels.map(actual => {
+        const cells = labels.map(pred => {
+          const v = cm[actual][pred];
+          const isMatch = actual === pred;
+          const opacity = maxVal > 0 ? 0.1 + (v/maxVal)*0.7 : 0;
+          const bg = isMatch ? `rgba(127,174,145,${opacity})` : v > 0 ? `rgba(194,113,122,${opacity})` : 'transparent';
+          return `<td style="padding:6px 8px;font-weight:${isMatch?'700':'400'};background:${bg};color:${isMatch?'#7fae91':'#c3c5cb'}">${v}</td>`;
+        }).join('');
+        return `<tr><td style="padding:5px 10px;color:${ML_PIPELINE_COLORS[actual]};white-space:nowrap;font-weight:700">${shortLabel(actual)}</td>${cells}</tr>`;
+      }).join('');
+
+      return `
+        <table class="cm-table">
+          <thead><tr><th style="color:#8a8d95">Actual / Prediksi</th>${headerCells}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
+    // Auto-tampilkan hasil evaluasi terakhir jika ada
+    const lastEval = loadEvalResult();
+    if (lastEval && model) {
+      displayEvaluation(lastEval);
+    }
+  </script>
+</body>
+</html>
